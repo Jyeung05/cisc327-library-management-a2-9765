@@ -30,7 +30,6 @@ jobs:
           # Ensure pytest is available even if not in requirements.txt
           python -m pip install pytest
 
-      # Optional: show environment info for easier debugging
       - name: Show Python & pip info
         run: |
           python --version
@@ -42,9 +41,3 @@ jobs:
           # Produce a JUnit report for PR annotations and an artifact
           python -m pytest -q --maxfail=1 --disable-warnings --junitxml=pytest-report.xml
 
-      - name: Upload test report artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-report-${{ matrix.python-version }}
-          path: pytest-report.xml
