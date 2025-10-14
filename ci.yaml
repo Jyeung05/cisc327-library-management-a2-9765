@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+          # Ensure pytest is available even if not in requirements.txt
+          python -m pip install pytest
+
+      # Optional: show environment info for easier debugging
+      - name: Show Python & pip info
+        run: |
+          python --version
+          pip --version
+          pip list
+
+      - name: Run tests (pytest)
+        run: |
+          # Produce a JUnit report for PR annotations and an artifact
+          python -m pytest -q --maxfail=1 --disable-warnings --junitxml=pytest-report.xml
+
+      - name: Upload test report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-report-${{ matrix.python-version }}
+          path: pytest-report.xml
