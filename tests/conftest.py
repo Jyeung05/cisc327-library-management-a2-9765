@@ -1,9 +1,23 @@
 import os
 from datetime import datetime, timedelta
 import pytest
+import sys
 
 import database as db
-import library_service as svc
+import services.library_service as svc
+from services.payment_service import PaymentGateway
+
+ROOT = os.path.dirname(os.path.dirname(__file__))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+# import real modules from services/
+import services.library_service as _library_service
+import services.payment_service as _payment_service
+
+# expose them under the old names expected by the tests
+sys.modules['library_service'] = _library_service
+sys.modules['payment_service'] = _payment_service
 
 @pytest.fixture(scope="session")
 def tmp_db_path(tmp_path_factory):

@@ -5,6 +5,7 @@ Contains all the core business logic for the Library Management System
 
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
+from services.payment_service import PaymentGateway
 from database import (
     get_book_by_id, get_book_by_isbn, get_patron_borrow_count,
     insert_book, insert_borrow_record, update_book_availability,
@@ -82,7 +83,7 @@ def borrow_book_by_patron(patron_id: str, book_id: int) -> Tuple[bool, str]:
     # Check patron's current borrowed books count
     current_borrowed = get_patron_borrow_count(patron_id)
     
-    if current_borrowed > 5:
+    if current_borrowed >= 5:
         return False, "You have reached the maximum borrowing limit of 5 books."
     
     # Create borrow record
@@ -100,7 +101,6 @@ def borrow_book_by_patron(patron_id: str, book_id: int) -> Tuple[bool, str]:
     
     return True, f'Successfully borrowed "{book["title"]}". Due date: {due_date.strftime("%Y-%m-%d")}.'
 
-# --------- Helper: Late-fee policy (pure) ----------
 def _fee_for_days(days_overdue: int) -> float:
     """R5 policy: $0.50/day for first 7 days, $1.00/day after, cap $15."""
     if days_overdue <= 0:
@@ -115,37 +115,36 @@ def return_book_by_patron(patron_id: str, book_id: int) -> Tuple[bool, str]:
     Implements R4: Accepts patron ID & book ID, verifies active borrow,
     records return date, updates availability, and reports late fee.
     """
-    # Validate patron ID format
+
     if not (isinstance(patron_id, str) and patron_id.isdigit() and len(patron_id) == 6):
         return False, "Invalid patron ID. Must be exactly 6 digits."
 
-    # Validate book exists
+
     book = get_book_by_id(book_id)
     if not book:
         return False, "Book not found."
 
-    # Verify patron currently has this book borrowed
     active = get_patron_borrowed_books(patron_id)
     match = next((r for r in active if r["book_id"] == book_id), None)
     if not match:
         return False, "No active borrow record for this patron and book."
 
     now = datetime.now()
-    # Compute fee BEFORE closing the record (we have due_date here)
+
     due_date = match["due_date"]
     days_overdue = max(0, (now - due_date).days)
     fee_amount = _fee_for_days(days_overdue)
 
-    # 1) Set return date
+  
     if not update_borrow_record_return_date(patron_id, book_id, now):
         return False, "Database error occurred while updating return record."
 
-    # 2) Increment availability (avoid exceeding total)
+
     if book["available_copies"] < book["total_copies"]:
         if not update_book_availability(book_id, +1):
             return False, "Database error occurred while updating book availability."
 
-    # Success message with fee
+
     fee_str = f"${fee_amount:.2f}"
     if days_overdue > 0:
         return True, f'Returned "{book["title"]}". Overdue by {days_overdue} day(s). Late fee: {fee_str}.'
@@ -161,7 +160,7 @@ def calculate_late_fee_for_book(patron_id: str, book_id: int) -> Dict:
     """
     now = datetime.now()
 
-    # Try active borrow first
+
     active = get_patron_borrowed_books(patron_id)
     for r in active:
         if r["book_id"] == book_id:
@@ -172,7 +171,6 @@ def calculate_late_fee_for_book(patron_id: str, book_id: int) -> Dict:
                 "status": "ok-active",
             }
 
-    # Fallback: look up most recent borrow record (historical)
     try:
         conn = get_db_connection()
         row = conn.execute(
@@ -198,7 +196,7 @@ def calculate_late_fee_for_book(patron_id: str, book_id: int) -> Dict:
         days_overdue = max(0, (returned - due).days)
         status = "ok-closed"
     else:
-        # Unlikely (would have shown up as active), but handle gracefully
+ 
         days_overdue = max(0, (now - due).days)
         status = "ok-ambiguous"
 
@@ -226,7 +224,6 @@ def search_books_in_catalog(search_term: str, search_type: str) -> List[Dict]:
     if search_type == "isbn":
         return [b for b in books if str(b.get("isbn", "")).strip() == term]
 
-    # Partial, case-insensitive for title/author
     term_lower = term.lower()
     key = "title" if search_type == "title" else "author"
     return [b for b in books if term_lower in str(b.get(key, "")).lower()]
@@ -240,15 +237,12 @@ def get_patron_status_report(patron_id: str) -> Dict:
       - total late fees owed (sum over active borrows)
       - borrowing history (all past borrows with return dates)
     """
-    # Basic validation (keep consistent with other functions)
     if not (isinstance(patron_id, str) and patron_id.isdigit() and len(patron_id) == 6):
         return {"status": "error", "message": "Invalid patron ID. Must be exactly 6 digits."}
 
-    # Current borrows
     current = get_patron_borrowed_books(patron_id)
     now = datetime.now()
 
-    # Enrich current borrows with overdue + fee
     current_items = []
     total_fees = 0.0
     for r in current:
@@ -266,7 +260,6 @@ def get_patron_status_report(patron_id: str) -> Dict:
             "late_fee": round(fee, 2),
         })
 
-    # History (all records for patron)
     history: List[Dict] = []
     try:
         conn = get_db_connection()
@@ -287,7 +280,6 @@ def get_patron_status_report(patron_id: str) -> Dict:
             borrow_date = datetime.fromisoformat(row["borrow_date"])
             due_date = datetime.fromisoformat(row["due_date"])
             return_date = datetime.fromisoformat(row["return_date"]) if row["return_date"] else None
-            # Fee at return time (or as of now if still out)
             basis_time = return_date or now
             days_overdue = max(0, (basis_time - due_date).days)
             history.append({
@@ -301,7 +293,6 @@ def get_patron_status_report(patron_id: str) -> Dict:
                 "late_fee": round(_fee_for_days(days_overdue), 2),
             })
     except Exception:
-        # If anything goes wrong, still return the core info
         history = []
 
     return {
@@ -312,3 +303,111 @@ def get_patron_status_report(patron_id: str) -> Dict:
         "currently_borrowed": current_items,
         "history": history,
     }
+
+
+
+def pay_late_fees(patron_id: str, book_id: int, payment_gateway: PaymentGateway = None) -> Tuple[bool, str, Optional[str]]:
+    """
+    Process payment for late fees using external payment gateway.
+    
+    NEW FEATURE FOR ASSIGNMENT 3: Demonstrates need for mocking/stubbing
+    This function depends on an external payment service that should be mocked in tests.
+    
+    Args:
+        patron_id: 6-digit library card ID
+        book_id: ID of the book with late fees
+        payment_gateway: Payment gateway instance (injectable for testing)
+        
+    Returns:
+        tuple: (success: bool, message: str, transaction_id: Optional[str])
+        
+    Example for you to mock:
+        # In tests, mock the payment gateway:
+        mock_gateway = Mock(spec=PaymentGateway)
+        mock_gateway.process_payment.return_value = (True, "txn_123", "Success")
+        success, msg, txn = pay_late_fees("123456", 1, mock_gateway)
+    """
+    # Validate patron ID
+    if not patron_id or not patron_id.isdigit() or len(patron_id) != 6:
+        return False, "Invalid patron ID. Must be exactly 6 digits.", None
+    
+    # Calculate late fee first
+    fee_info = calculate_late_fee_for_book(patron_id, book_id)
+    
+    # Check if there's a fee to pay
+    if not fee_info or 'fee_amount' not in fee_info:
+        return False, "Unable to calculate late fees.", None
+    
+    fee_amount = fee_info.get('fee_amount', 0.0)
+    
+    if fee_amount <= 0:
+        return False, "No late fees to pay for this book.", None
+    
+    # Get book details for payment description
+    book = get_book_by_id(book_id)
+    if not book:
+        return False, "Book not found.", None
+    
+    # Use provided gateway or create new one
+    if payment_gateway is None:
+        payment_gateway = PaymentGateway()
+    
+    # Process payment through external gateway
+    # THIS IS WHAT YOU SHOULD MOCK IN THEIR TESTS!
+    try:
+        success, transaction_id, message = payment_gateway.process_payment(
+            patron_id=patron_id,
+            amount=fee_amount,
+            description=f"Late fees for '{book['title']}'"
+        )
+        
+        if success:
+            return True, f"Payment successful! {message}", transaction_id
+        else:
+            return False, f"Payment failed: {message}", None
+            
+    except Exception as e:
+        # Handle payment gateway errors
+        return False, f"Payment processing error: {str(e)}", None
+
+
+def refund_late_fee_payment(transaction_id: str, amount: float, payment_gateway: PaymentGateway = None) -> Tuple[bool, str]:
+    """
+    Refund a late fee payment (e.g., if book was returned on time but fees were charged in error).
+    
+    NEW FEATURE FOR ASSIGNMENT 3: Another function requiring mocking
+    
+    Args:
+        transaction_id: Original transaction ID to refund
+        amount: Amount to refund
+        payment_gateway: Payment gateway instance (injectable for testing)
+        
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    # Validate inputs
+    if not transaction_id or not transaction_id.startswith("txn_"):
+        return False, "Invalid transaction ID."
+    
+    if amount <= 0:
+        return False, "Refund amount must be greater than 0."
+    
+    if amount > 15.00:  # Maximum late fee per book
+        return False, "Refund amount exceeds maximum late fee."
+    
+    # Use provided gateway or create new one
+    if payment_gateway is None:
+        payment_gateway = PaymentGateway()
+    
+    # Process refund through external gateway
+    # THIS IS WHAT YOU SHOULD MOCK IN YOUR TESTS!
+    try:
+        success, message = payment_gateway.refund_payment(transaction_id, amount)
+        
+        if success:
+            return True, message
+        else:
+            return False, f"Refund failed: {message}"
+            
+    except Exception as e:
+        return False, f"Refund processing error: {str(e)}"
