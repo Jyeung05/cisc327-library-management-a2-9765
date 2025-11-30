@@ -66,17 +66,6 @@ The repository now includes a `Dockerfile` to containerize the Flask application
 2. Run the container: `docker run -p 5000:5000 library-app`
 3. Visit the app at [http://localhost:5000](http://localhost:5000).
 
-### Why `docker` is missing locally
-
-`docker` is a system-level tool, not a Python dependency, so it is **not** listed in `requirements.txt`. If your shell reports `docker: command not found` (as on Windows PowerShell), install Docker Desktop first:
-
-1. Download **Docker Desktop for Windows** from <https://docs.docker.com/desktop/install/windows-install/>.
-2. Run the installer and enable the recommended WSL 2 option if prompted.
-3. After installation, restart PowerShell and verify: `docker --version`.
-4. Run the commands above from a directory your user owns (e.g., inside your project folder). If you use WSL, open the project there and run the same commands in the Linux terminal.
-
-If you cannot install Docker on your machine, you can still complete Task 2 by documenting the steps above in your report and running the Flask app natively with `flask run` while noting the Docker limitation.
-
 ## Docker Hub walkthrough (Task 3)
 
 Follow these steps to publish and validate the image in Docker Hub:
