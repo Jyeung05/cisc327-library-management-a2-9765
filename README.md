@@ -48,4 +48,35 @@ See [`student_instructions.md`](student_instructions.md) for complete assignment
 - [Pytest framework](https://realpython.com/pytest-python-testing/)
 - [Python Blueprint](https://flask.palletsprojects.com/en/stable/blueprints)
 
+## End-to-End browser tests
+
+Browser-based tests live in `tests/test_e2e_playwright.py` and drive a real Chromium session with [Playwright](https://playwright.dev/python/).
+
+1. Install dependencies: `pip install -r requirements.txt`
+2. Install browser binaries (first-time only): `python -m playwright install --with-deps`
+3. Run the suite: `pytest tests/test_e2e_playwright.py`
+
+The tests automatically launch the Flask app on port `5000`, add a book through the UI, verify it appears in the catalog, and borrow it with a patron ID while checking the success messages.
+
+## Docker usage (Task 2)
+
+The repository now includes a `Dockerfile` to containerize the Flask application.
+
+1. Build the image: `docker build -t library-app .`
+2. Run the container: `docker run -p 5000:5000 library-app`
+3. Visit the app at [http://localhost:5000](http://localhost:5000).
+
+## Docker Hub walkthrough (Task 3)
+
+Follow these steps to publish and validate the image in Docker Hub:
+
+1. Create/sign in to your Docker Hub account at https://hub.docker.com/.
+2. Log in from the terminal: `docker login` (enter your Hub username/password when prompted).
+3. Tag the local image so it targets your repository: `docker tag library-app YOUR_DOCKERHUB_USERNAME/library-app:v1`
+4. Push the image: `docker push YOUR_DOCKERHUB_USERNAME/library-app:v1`
+5. Remove the local copy to prove reproducibility: `docker rmi YOUR_DOCKERHUB_USERNAME/library-app:v1`
+6. Pull it back from Docker Hub: `docker pull YOUR_DOCKERHUB_USERNAME/library-app:v1`
+7. Run from the pulled image: `docker run -p 5000:5000 YOUR_DOCKERHUB_USERNAME/library-app:v1`
+8. Capture screenshots of the push, removal, pull, and run commands succeeding for your submission report.
+
 
